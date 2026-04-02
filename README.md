@@ -47,6 +47,15 @@ The server uses the x402 payment protocol. Each tool call triggers a USDC microp
 
 Without `SVM_PRIVATE_KEY`, tools return payment requirement info instead of data.
 
+## Also Available
+
+| Platform | Package |
+|---|---|
+| TypeScript SDK | [`madeonsol-x402`](https://www.npmjs.com/package/madeonsol-x402) |
+| Python (LangChain, CrewAI) | [`madeonsol-x402`](https://github.com/LamboPoewert/madeonsol-python) on PyPI |
+| ElizaOS | [`@madeonsol/plugin-madeonsol`](https://www.npmjs.com/package/@madeonsol/plugin-madeonsol) |
+| Solana Agent Kit | [`solana-agent-kit-plugin-madeonsol`](https://www.npmjs.com/package/solana-agent-kit-plugin-madeonsol) |
+
 ## License
 
 MIT
