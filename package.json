@@ -7,12 +7,25 @@
     "mcp-server-madeonsol": "dist/index.js"
   },
   "main": "dist/index.js",
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "glama.json"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": ""
   },
-  "keywords": ["mcp", "solana", "x402", "kol", "trading", "claude", "cursor"],
+  "keywords": [
+    "mcp",
+    "solana",
+    "x402",
+    "kol",
+    "trading",
+    "claude",
+    "cursor"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -22,10 +35,14 @@
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "peerDependencies": {
-    "@x402/fetch": ">=0.1.0",
-    "@x402/core": ">=0.1.0",
-    "@x402/svm": ">=0.1.0",
+    "@scure/base": ">=1.0.0",
     "@solana/kit": ">=2.0.0",
-    "@scure/base": ">=1.0.0"
+    "@x402/core": ">=0.1.0",
+    "@x402/fetch": ">=0.1.0",
+    "@x402/svm": ">=0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
   }
 }

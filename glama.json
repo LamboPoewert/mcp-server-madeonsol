@@ -1,0 +1,35 @@
+{
+  "name": "mcp-server-madeonsol",
+  "display_name": "MadeOnSol",
+  "description": "Solana KOL trading intelligence and deployer analytics via x402 micropayments. Real-time data from 946 KOL wallets and 4000+ Pump.fun deployers.",
+  "version": "0.1.0",
+  "homepage": "https://madeonsol.com/solana-api",
+  "repository": "https://github.com/LamboPoewert/mcp-server-madeonsol",
+  "license": "MIT",
+  "categories": ["blockchain", "finance", "web3"],
+  "tags": ["solana", "kol", "trading", "x402", "micropayments", "defi"],
+  "tools": [
+    {
+      "name": "madeonsol_kol_feed",
+      "description": "Get real-time Solana KOL trades from 946 tracked wallets. $0.005 USDC/req."
+    },
+    {
+      "name": "madeonsol_kol_coordination",
+      "description": "Get KOL convergence signals — tokens multiple KOLs are accumulating. $0.02 USDC/req."
+    },
+    {
+      "name": "madeonsol_kol_leaderboard",
+      "description": "Get KOL performance rankings by PnL and win rate. $0.005 USDC/req."
+    },
+    {
+      "name": "madeonsol_deployer_alerts",
+      "description": "Get elite Pump.fun deployer alerts with KOL enrichment. $0.01 USDC/req."
+    },
+    {
+      "name": "madeonsol_discovery",
+      "description": "List all available endpoints with prices. Free."
+    }
+  ],
+  "transports": ["stdio", "http"],
+  "runtime": "node"
+}
