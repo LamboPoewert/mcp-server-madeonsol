@@ -1,0 +1,30 @@
+# Smithery configuration file: https://smithery.ai/docs/config
+# MadeOnSol MCP Server — Solana KOL intelligence via x402 micropayments
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - SVM_PRIVATE_KEY
+    properties:
+      SVM_PRIVATE_KEY:
+        type: string
+        description: "Base58-encoded Solana private key for x402 USDC payments"
+      MADEONSOL_API_URL:
+        type: string
+        default: "https://madeonsol.com"
+        description: "MadeOnSol API base URL (default: https://madeonsol.com)"
+  commandFunction:
+    |-
+    (config) => ({
+      command: 'npx',
+      args: ['-y', 'mcp-server-madeonsol'],
+      env: {
+        SVM_PRIVATE_KEY: config.SVM_PRIVATE_KEY,
+        MADEONSOL_API_URL: config.MADEONSOL_API_URL || 'https://madeonsol.com'
+      }
+    })
+  exampleConfig:
+    SVM_PRIVATE_KEY: "your-base58-solana-private-key"
+    MADEONSOL_API_URL: "https://madeonsol.com"
