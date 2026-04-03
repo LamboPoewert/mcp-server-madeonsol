@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 
 const BASE_URL = process.env.MADEONSOL_API_URL || "https://madeonsol.com";
 const PRIVATE_KEY = process.env.SVM_PRIVATE_KEY;
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY; // For webhook/streaming features (Pro/Ultra)
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const MODE = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 
@@ -123,6 +124,99 @@ function registerTools(server: McpServer) {
     }
   );
 
+  // ── Webhook & Streaming tools (require RAPIDAPI_KEY env var) ──
+
+  if (RAPIDAPI_KEY) {
+    const restHeaders = {
+      "Content-Type": "application/json",
+      "x-rapidapi-key": RAPIDAPI_KEY,
+      "x-rapidapi-host": "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com",
+    };
+
+    async function restQuery(method: string, path: string, body?: unknown): Promise<string> {
+      const res = await fetch(`${BASE_URL}/api/v1${path}`, {
+        method,
+        headers: restHeaders,
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return `Error ${res.status}: ${text}`;
+      }
+      return JSON.stringify(await res.json(), null, 2);
+    }
+
+    const webhookAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true };
+
+    server.tool(
+      "madeonsol_create_webhook",
+      "Register a webhook URL to receive real-time push notifications for KOL trades and deployer alerts. Requires RapidAPI Pro/Ultra.",
+      {
+        url: z.string().url().describe("HTTPS webhook URL to receive events"),
+        events: z.array(z.enum(["kol:trade", "kol:coordination", "deployer:alert", "deployer:bond"])).min(1).describe("Event types to subscribe to"),
+        min_sol: z.number().optional().describe("Optional: minimum SOL amount filter (for kol:trade)"),
+        action: z.enum(["buy", "sell"]).optional().describe("Optional: filter by buy or sell only"),
+        deployer_tier: z.array(z.string()).optional().describe("Optional: filter by deployer tiers, e.g. ['elite', 'good']"),
+      },
+      webhookAnnotations,
+      async ({ url, events, min_sol, action, deployer_tier }) => {
+        const filters: Record<string, unknown> = {};
+        if (min_sol) filters.min_sol = min_sol;
+        if (action) filters.action = action;
+        if (deployer_tier) filters.deployer_tier = deployer_tier;
+        return { content: [{ type: "text" as const, text: await restQuery("POST", "/webhooks", { url, events, filters }) }] };
+      }
+    );
+
+    server.tool(
+      "madeonsol_list_webhooks",
+      "List all your registered webhooks with delivery status and failure counts. Requires RAPIDAPI_KEY env var.",
+      {},
+      { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      async () => ({
+        content: [{ type: "text" as const, text: await restQuery("GET", "/webhooks") }],
+      })
+    );
+
+    server.tool(
+      "madeonsol_delete_webhook",
+      "Delete a webhook by ID. Permanently removes the webhook and its delivery history.",
+      {
+        id: z.number().describe("Webhook ID to delete"),
+      },
+      { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      async ({ id }) => ({
+        content: [{ type: "text" as const, text: await restQuery("DELETE", `/webhooks/${id}`) }],
+      })
+    );
+
+    server.tool(
+      "madeonsol_test_webhook",
+      "Send a sample event payload to a webhook URL to verify it works. Returns status code and response time.",
+      {
+        webhook_id: z.number().describe("ID of the webhook to test"),
+      },
+      { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      async ({ webhook_id }) => ({
+        content: [{ type: "text" as const, text: await restQuery("POST", "/webhooks/test", { webhook_id }) }],
+      })
+    );
+
+    server.tool(
+      "madeonsol_stream_token",
+      "Generate a 24-hour WebSocket streaming token for real-time event streaming. Connect to wss://madeonsol.com/ws/v1/stream?token=TOKEN",
+      {},
+      { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      async () => ({
+        content: [{ type: "text" as const, text: await restQuery("POST", "/stream/token") }],
+      })
+    );
+
+    console.error("[madeonsol-mcp] Webhook & streaming tools enabled (RAPIDAPI_KEY set)");
+  } else {
+    console.error("[madeonsol-mcp] No RAPIDAPI_KEY — webhook/streaming tools disabled");
+  }
+
   // Prompts — pre-built analysis templates
   server.prompt(
     "solana_kol_analysis",
@@ -190,6 +284,11 @@ async function main() {
             { name: "madeonsol_kol_leaderboard", description: "Get KOL performance rankings by PnL and win rate. $0.005 USDC/req." },
             { name: "madeonsol_deployer_alerts", description: "Get elite Pump.fun deployer alerts with KOL enrichment. $0.01 USDC/req." },
             { name: "madeonsol_discovery", description: "List all available endpoints with prices. Free." },
+            { name: "madeonsol_create_webhook", description: "Register a webhook for real-time push notifications. Requires RAPIDAPI_KEY." },
+            { name: "madeonsol_list_webhooks", description: "List your registered webhooks. Requires RAPIDAPI_KEY." },
+            { name: "madeonsol_delete_webhook", description: "Delete a webhook by ID. Requires RAPIDAPI_KEY." },
+            { name: "madeonsol_test_webhook", description: "Send a test payload to verify a webhook. Requires RAPIDAPI_KEY." },
+            { name: "madeonsol_stream_token", description: "Get a 24h WebSocket streaming token. Requires RAPIDAPI_KEY." },
           ],
           homepage: "https://madeonsol.com/solana-api",
           repository: "https://github.com/LamboPoewert/mcp-server-madeonsol",
