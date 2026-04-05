@@ -2,11 +2,23 @@
 
 MCP server for [MadeOnSol](https://madeonsol.com) Solana KOL intelligence API. Use from Claude Desktop, Cursor, or any MCP-compatible client.
 
+## Authentication
+
+Three options (in priority order):
+
+| Method | Env var | Best for |
+|---|---|---|
+| **MadeOnSol API key** (recommended) | `MADEONSOL_API_KEY` | Developers — [get a free key](https://madeonsol.com/developer) |
+| RapidAPI key | `RAPIDAPI_KEY` | RapidAPI subscribers |
+| x402 micropayments | `SVM_PRIVATE_KEY` | AI agents with Solana wallets |
+
 ## Install
 
 ```bash
-npm install -g mcp-server-madeonsol @x402/fetch @x402/svm @x402/core @solana/kit @scure/base
+npm install -g mcp-server-madeonsol
 ```
+
+> x402 peer deps (`@x402/fetch @x402/svm @x402/core @solana/kit @scure/base`) are only needed when using `SVM_PRIVATE_KEY`.
 
 ## Configure
 
@@ -20,7 +32,7 @@ Add to `claude_desktop_config.json`:
     "madeonsol": {
       "command": "mcp-server-madeonsol",
       "env": {
-        "SVM_PRIVATE_KEY": "your_solana_private_key_base58"
+        "MADEONSOL_API_KEY": "msk_your_api_key_here"
       }
     }
   }
@@ -33,19 +45,20 @@ Add to MCP settings with the same command and env vars.
 
 ## Tools
 
-| Tool | Price | Description |
-|---|---|---|
-| `madeonsol_kol_feed` | $0.005 | Real-time KOL trade feed (946 wallets) |
-| `madeonsol_kol_coordination` | $0.02 | Multi-KOL convergence signals |
-| `madeonsol_kol_leaderboard` | $0.005 | KOL PnL and win rate rankings |
-| `madeonsol_deployer_alerts` | $0.01 | Elite Pump.fun deployer launches |
-| `madeonsol_discovery` | Free | List all endpoints and prices |
+| Tool | Description |
+|---|---|
+| `madeonsol_kol_feed` | Real-time KOL trade feed (946 wallets) |
+| `madeonsol_kol_coordination` | Multi-KOL convergence signals |
+| `madeonsol_kol_leaderboard` | KOL PnL and win rate rankings |
+| `madeonsol_deployer_alerts` | Elite Pump.fun deployer launches |
+| `madeonsol_discovery` | List all endpoints and prices (free) |
 
-## How It Works
+**With Pro/Ultra subscription:**
 
-The server uses the x402 payment protocol. Each tool call triggers a USDC micropayment on Solana. Your wallet needs SOL (for fees) and USDC.
-
-Without `SVM_PRIVATE_KEY`, tools return payment requirement info instead of data.
+| Tool | Description |
+|---|---|
+| `madeonsol_stream_token` | Get 24h WebSocket token for KOL/deployer streaming and DEX trade stream |
+| Webhook CRUD tools | Create, list, update, delete, test webhooks |
 
 ## Also Available
 

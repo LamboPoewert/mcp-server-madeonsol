@@ -8,43 +8,78 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 
 const BASE_URL = process.env.MADEONSOL_API_URL || "https://madeonsol.com";
-const PRIVATE_KEY = process.env.SVM_PRIVATE_KEY;
-const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY; // For webhook/streaming features (Pro/Ultra)
+const MADEONSOL_API_KEY = process.env.MADEONSOL_API_KEY; // Native key from madeonsol.com/developer
+const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY; // RapidAPI subscription key
+const PRIVATE_KEY = process.env.SVM_PRIVATE_KEY; // x402 micropayments (for AI agents)
 const PORT = parseInt(process.env.PORT || "3100", 10);
 const MODE = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 
+// Auth mode: MADEONSOL_API_KEY > RAPIDAPI_KEY > SVM_PRIVATE_KEY (x402)
+type AuthMode = "madeonsol" | "rapidapi" | "x402" | "none";
+let authMode: AuthMode = "none";
 let paidFetch: typeof fetch = fetch;
 
-async function initPayment() {
-  if (!PRIVATE_KEY) {
-    console.error("[madeonsol-mcp] No SVM_PRIVATE_KEY — tools will return 402 payment info");
+function apiKeyHeaders(): Record<string, string> {
+  if (authMode === "madeonsol") {
+    return { Authorization: `Bearer ${MADEONSOL_API_KEY}` };
+  }
+  if (authMode === "rapidapi") {
+    return {
+      "x-rapidapi-key": RAPIDAPI_KEY!,
+      "x-rapidapi-host": "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com",
+    };
+  }
+  return {};
+}
+
+async function initAuth() {
+  if (MADEONSOL_API_KEY) {
+    authMode = "madeonsol";
+    console.error("[madeonsol-mcp] Using MadeOnSol API key (Bearer auth)");
     return;
   }
-  try {
-    const { wrapFetchWithPayment } = await import("@x402/fetch");
-    const { x402Client } = await import("@x402/core/client");
-    const { ExactSvmScheme } = await import("@x402/svm/exact/client");
-    const { createKeyPairSignerFromBytes } = await import("@solana/kit");
-    const { base58 } = await import("@scure/base");
-
-    const signer = await createKeyPairSignerFromBytes(base58.decode(PRIVATE_KEY));
-    const client = new x402Client();
-    client.register("solana:*", new ExactSvmScheme(signer));
-    paidFetch = wrapFetchWithPayment(fetch, client);
-    console.error(`[madeonsol-mcp] x402 payments enabled, wallet: ${signer.address}`);
-  } catch (err) {
-    console.error("[madeonsol-mcp] x402 setup failed:", err);
+  if (RAPIDAPI_KEY) {
+    authMode = "rapidapi";
+    console.error("[madeonsol-mcp] Using RapidAPI key");
+    return;
   }
+  if (PRIVATE_KEY) {
+    try {
+      const { wrapFetchWithPayment } = await import("@x402/fetch");
+      const { x402Client } = await import("@x402/core/client");
+      const { ExactSvmScheme } = await import("@x402/svm/exact/client");
+      const { createKeyPairSignerFromBytes } = await import("@solana/kit");
+      const { base58 } = await import("@scure/base");
+
+      const signer = await createKeyPairSignerFromBytes(base58.decode(PRIVATE_KEY));
+      const client = new x402Client();
+      client.register("solana:*", new ExactSvmScheme(signer));
+      paidFetch = wrapFetchWithPayment(fetch, client);
+      authMode = "x402";
+      console.error(`[madeonsol-mcp] x402 payments enabled, wallet: ${signer.address}`);
+      return;
+    } catch (err) {
+      console.error("[madeonsol-mcp] x402 setup failed:", err);
+    }
+  }
+  console.error("[madeonsol-mcp] No auth configured. Set MADEONSOL_API_KEY (get one free at madeonsol.com/developer), RAPIDAPI_KEY, or SVM_PRIVATE_KEY.");
 }
 
 async function query(path: string, params?: Record<string, string | number>) {
-  const url = new URL(path, BASE_URL);
+  // API key and RapidAPI auth use /api/v1/ endpoints; x402 uses /api/x402/
+  const apiPath = authMode === "x402" || authMode === "none"
+    ? path
+    : path.replace("/api/x402/", "/api/v1/");
+  const url = new URL(apiPath, BASE_URL);
   if (params) {
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined) url.searchParams.set(k, String(v));
     }
   }
-  const res = await paidFetch(url.toString());
+  const headers = apiKeyHeaders();
+  const res = authMode === "x402"
+    ? await paidFetch(url.toString())
+    : await fetch(url.toString(), { headers });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     return `Error ${res.status}: ${body}`;
@@ -57,7 +92,7 @@ function registerTools(server: McpServer) {
 
   server.tool(
     "madeonsol_kol_feed",
-    "Get real-time Solana KOL trades from 946 tracked wallets. Costs $0.005 USDC per request via x402.",
+    "Get real-time Solana KOL trades from 946 tracked wallets.",
     {
       limit: z.number().min(1).max(100).default(10).describe("Number of trades to return (1-100)"),
       action: z.enum(["buy", "sell"]).optional().describe("Filter by trade type: buy or sell"),
@@ -74,7 +109,7 @@ function registerTools(server: McpServer) {
 
   server.tool(
     "madeonsol_kol_coordination",
-    "Get KOL convergence signals — tokens being accumulated by multiple KOLs simultaneously. Costs $0.02 USDC per request via x402.",
+    "Get KOL convergence signals — tokens being accumulated by multiple KOLs simultaneously.",
     {
       period: z.enum(["1h", "6h", "24h", "7d"]).default("24h").describe("Time period for coordination analysis"),
       min_kols: z.number().min(2).max(50).default(3).describe("Minimum number of KOLs converging on the same token"),
@@ -88,7 +123,7 @@ function registerTools(server: McpServer) {
 
   server.tool(
     "madeonsol_kol_leaderboard",
-    "Get KOL performance rankings by PnL and win rate. Costs $0.005 USDC per request via x402.",
+    "Get KOL performance rankings by PnL and win rate.",
     {
       period: z.enum(["today", "7d", "30d"]).default("7d").describe("Time period for leaderboard: today, 7d, or 30d"),
       limit: z.number().min(1).max(50).default(20).describe("Number of KOLs to return in ranking"),
@@ -101,7 +136,7 @@ function registerTools(server: McpServer) {
 
   server.tool(
     "madeonsol_deployer_alerts",
-    "Get real-time alerts from elite Pump.fun deployers with KOL buy enrichment. Costs $0.01 USDC per request via x402.",
+    "Get real-time alerts from elite Pump.fun deployers with KOL buy enrichment.",
     {
       limit: z.number().min(1).max(100).default(10).describe("Number of deployer alerts to return (1-100)"),
       offset: z.number().min(0).default(0).describe("Pagination offset for deployer alerts"),
@@ -114,7 +149,7 @@ function registerTools(server: McpServer) {
 
   server.tool(
     "madeonsol_discovery",
-    "List all available MadeOnSol x402 API endpoints with prices and parameter docs. Free, no payment required.",
+    "List all available MadeOnSol API endpoints with prices and parameter docs. Free, no auth required.",
     {},
     { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     async () => {
@@ -124,19 +159,18 @@ function registerTools(server: McpServer) {
     }
   );
 
-  // ── Webhook & Streaming tools (require RAPIDAPI_KEY env var) ──
+  // ── Webhook & Streaming tools (require API key or RapidAPI key — Pro/Ultra tier) ──
 
-  if (RAPIDAPI_KEY) {
-    const restHeaders = {
-      "Content-Type": "application/json",
-      "x-rapidapi-key": RAPIDAPI_KEY,
-      "x-rapidapi-host": "madeonsol-solana-kol-tracker-tools-api.p.rapidapi.com",
-    };
-
+  const hasRestAuth = authMode === "madeonsol" || authMode === "rapidapi";
+  if (hasRestAuth) {
     async function restQuery(method: string, path: string, body?: unknown): Promise<string> {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...apiKeyHeaders(),
+      };
       const res = await fetch(`${BASE_URL}/api/v1${path}`, {
         method,
-        headers: restHeaders,
+        headers,
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
       if (!res.ok) {
@@ -150,7 +184,7 @@ function registerTools(server: McpServer) {
 
     server.tool(
       "madeonsol_create_webhook",
-      "Register a webhook URL to receive real-time push notifications for KOL trades and deployer alerts. Requires RapidAPI Pro/Ultra.",
+      "Register a webhook URL to receive real-time push notifications for KOL trades and deployer alerts. Requires Pro/Ultra subscription.",
       {
         url: z.string().url().describe("HTTPS webhook URL to receive events"),
         events: z.array(z.enum(["kol:trade", "kol:coordination", "deployer:alert", "deployer:bond"])).min(1).describe("Event types to subscribe to"),
@@ -170,7 +204,7 @@ function registerTools(server: McpServer) {
 
     server.tool(
       "madeonsol_list_webhooks",
-      "List all your registered webhooks with delivery status and failure counts. Requires RAPIDAPI_KEY env var.",
+      "List all your registered webhooks with delivery status and failure counts.",
       {},
       { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       async () => ({
@@ -204,7 +238,7 @@ function registerTools(server: McpServer) {
 
     server.tool(
       "madeonsol_stream_token",
-      "Generate a 24-hour WebSocket streaming token for real-time event streaming. Connect to wss://madeonsol.com/ws/v1/stream?token=TOKEN",
+      "Generate a 24h WebSocket streaming token. Includes ws_url for KOL/deployer streaming (Pro/Ultra) and dex_ws_url for all-DEX trade streaming (Ultra only).",
       {},
       { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
       async () => ({
@@ -212,9 +246,9 @@ function registerTools(server: McpServer) {
       })
     );
 
-    console.error("[madeonsol-mcp] Webhook & streaming tools enabled (RAPIDAPI_KEY set)");
+    console.error("[madeonsol-mcp] Webhook & streaming tools enabled");
   } else {
-    console.error("[madeonsol-mcp] No RAPIDAPI_KEY — webhook/streaming tools disabled");
+    console.error("[madeonsol-mcp] Webhook/streaming tools disabled (requires MADEONSOL_API_KEY or RAPIDAPI_KEY)");
   }
 
   // Prompts — pre-built analysis templates
@@ -256,7 +290,7 @@ function registerTools(server: McpServer) {
 }
 
 async function main() {
-  await initPayment();
+  await initAuth();
 
   if (MODE === "http") {
     // HTTP transport for hosted environments (Smithery, etc.)
@@ -276,19 +310,19 @@ async function main() {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({
           name: "madeonsol",
-          description: "Solana KOL trading intelligence and deployer analytics via x402 micropayments. Real-time data from 946 KOL wallets and 4000+ Pump.fun deployers.",
+          description: "Solana KOL trading intelligence and deployer analytics. Real-time data from 946 KOL wallets and 4000+ Pump.fun deployers. Supports API key, RapidAPI, or x402 micropayments.",
           version: "0.1.0",
           tools: [
-            { name: "madeonsol_kol_feed", description: "Get real-time Solana KOL trades from 946 tracked wallets. $0.005 USDC/req." },
-            { name: "madeonsol_kol_coordination", description: "Get KOL convergence signals — tokens multiple KOLs are accumulating. $0.02 USDC/req." },
-            { name: "madeonsol_kol_leaderboard", description: "Get KOL performance rankings by PnL and win rate. $0.005 USDC/req." },
-            { name: "madeonsol_deployer_alerts", description: "Get elite Pump.fun deployer alerts with KOL enrichment. $0.01 USDC/req." },
+            { name: "madeonsol_kol_feed", description: "Get real-time Solana KOL trades from 946 tracked wallets." },
+            { name: "madeonsol_kol_coordination", description: "Get KOL convergence signals — tokens multiple KOLs are accumulating." },
+            { name: "madeonsol_kol_leaderboard", description: "Get KOL performance rankings by PnL and win rate." },
+            { name: "madeonsol_deployer_alerts", description: "Get elite Pump.fun deployer alerts with KOL enrichment." },
             { name: "madeonsol_discovery", description: "List all available endpoints with prices. Free." },
-            { name: "madeonsol_create_webhook", description: "Register a webhook for real-time push notifications. Requires RAPIDAPI_KEY." },
-            { name: "madeonsol_list_webhooks", description: "List your registered webhooks. Requires RAPIDAPI_KEY." },
-            { name: "madeonsol_delete_webhook", description: "Delete a webhook by ID. Requires RAPIDAPI_KEY." },
-            { name: "madeonsol_test_webhook", description: "Send a test payload to verify a webhook. Requires RAPIDAPI_KEY." },
-            { name: "madeonsol_stream_token", description: "Get a 24h WebSocket streaming token. Requires RAPIDAPI_KEY." },
+            { name: "madeonsol_create_webhook", description: "Register a webhook for real-time push notifications. Pro/Ultra." },
+            { name: "madeonsol_list_webhooks", description: "List your registered webhooks. Pro/Ultra." },
+            { name: "madeonsol_delete_webhook", description: "Delete a webhook by ID. Pro/Ultra." },
+            { name: "madeonsol_test_webhook", description: "Send a test payload to verify a webhook. Pro/Ultra." },
+            { name: "madeonsol_stream_token", description: "Get a 24h WebSocket streaming token. Pro/Ultra." },
           ],
           homepage: "https://madeonsol.com/solana-api",
           repository: "https://github.com/LamboPoewert/mcp-server-madeonsol",
