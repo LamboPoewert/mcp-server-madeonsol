@@ -1,30 +1,43 @@
-# Smithery configuration file: https://smithery.ai/docs/config
-# MadeOnSol MCP Server — Solana KOL intelligence via x402 micropayments
+# Smithery + Glama configuration: https://smithery.ai/docs/config
+# MadeOnSol MCP Server — Solana memecoin intelligence (KOL tracker, deployer hunter, DEX firehose)
 
 startCommand:
   type: stdio
   configSchema:
     type: object
-    required:
-      - SVM_PRIVATE_KEY
+    description: >
+      Provide either MADEONSOL_API_KEY (recommended — free tier 200 req/day at https://madeonsol.com/pricing)
+      OR SVM_PRIVATE_KEY (pay-per-call via x402 micropayments). At least one is required at runtime.
     properties:
+      MADEONSOL_API_KEY:
+        type: string
+        title: "MadeOnSol API key (recommended)"
+        description: >
+          Your MadeOnSol API key, starts with msk_. Free tier (200 req/day, no card) at
+          https://madeonsol.com/pricing. Unlocks the full v1 REST surface including
+          KOL feed, deployer alerts, alpha-wallet intel, coordination, first-touch
+          scout signal, copy-trade rules, and the DEX firehose (ULTRA).
       SVM_PRIVATE_KEY:
         type: string
-        description: "Base58-encoded Solana private key for x402 USDC payments"
+        title: "Solana wallet private key (x402 alternative)"
+        description: >
+          Base58-encoded Solana private key for pay-per-call via x402 micropayments.
+          Use this if you'd rather not sign up — the server autopays per request from
+          this wallet. Only needed if MADEONSOL_API_KEY is not set.
       MADEONSOL_API_URL:
         type: string
         default: "https://madeonsol.com"
-        description: "MadeOnSol API base URL (default: https://madeonsol.com)"
+        description: "MadeOnSol API base URL (defaults to https://madeonsol.com)."
   commandFunction:
     |-
     (config) => ({
       command: 'npx',
       args: ['-y', 'mcp-server-madeonsol'],
       env: {
-        SVM_PRIVATE_KEY: config.SVM_PRIVATE_KEY,
+        ...(config.MADEONSOL_API_KEY ? { MADEONSOL_API_KEY: config.MADEONSOL_API_KEY } : {}),
+        ...(config.SVM_PRIVATE_KEY ? { SVM_PRIVATE_KEY: config.SVM_PRIVATE_KEY } : {}),
         MADEONSOL_API_URL: config.MADEONSOL_API_URL || 'https://madeonsol.com'
       }
     })
   exampleConfig:
-    SVM_PRIVATE_KEY: "your-base58-solana-private-key"
-    MADEONSOL_API_URL: "https://madeonsol.com"
+    MADEONSOL_API_KEY: "msk_your_free_key_from_madeonsol_dot_com_pricing"
