@@ -56,5 +56,8 @@
     "@x402/svm": ">=0.1.0",
     "@solana/kit": ">=2.0.0",
     "@scure/base": ">=1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5"
   }
 }
