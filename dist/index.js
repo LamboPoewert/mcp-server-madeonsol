@@ -375,6 +375,49 @@ function registerTools(server) {
         }
         return { content: [{ type: "text", text: JSON.stringify(await res.json(), null, 2) }] };
     });
+    server.tool("madeonsol_sniper_watchlist_list", "List your custom sniper watchlist (tracked deployer wallets, any tier). PRO+/ULTRA only. Added 2026-09-10.", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }, async () => {
+        if (authMode !== "madeonsol")
+            return { content: [{ type: "text", text: "Sniper watchlist requires MADEONSOL_API_KEY (msk_)." }] };
+        const res = await fetch(`${BASE_URL}/api/v1/sniper/watchlist`, { headers: apiKeyHeaders() });
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            return { content: [{ type: "text", text: `Error ${res.status}: ${body}` }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(await res.json(), null, 2) }] };
+    });
+    server.tool("madeonsol_sniper_watchlist_add", "Add one or many deployer wallets to your sniper watchlist — narrows madeonsol_sniper_recent(watchlist:true) to just these. PRO+/ULTRA only. Added 2026-09-10.", {
+        wallet: z.string().optional().describe("Single deployer wallet address (base58) — provide this or `wallets`"),
+        wallets: z.array(z.string()).optional().describe("Multiple deployer wallet addresses (base58, up to 50) — provide this or `wallet`"),
+        label: z.string().optional().describe("Optional human-readable label"),
+    }, { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, async ({ wallet, wallets, label }) => {
+        if (authMode !== "madeonsol")
+            return { content: [{ type: "text", text: "Sniper watchlist requires MADEONSOL_API_KEY (msk_)." }] };
+        const body = {};
+        if (wallet)
+            body.wallet = wallet;
+        if (wallets)
+            body.wallets = wallets;
+        if (label)
+            body.label = label;
+        const res = await fetch(`${BASE_URL}/api/v1/sniper/watchlist`, { method: "POST", headers: { "Content-Type": "application/json", ...apiKeyHeaders() }, body: JSON.stringify(body) });
+        if (!res.ok) {
+            const respBody = await res.text().catch(() => "");
+            return { content: [{ type: "text", text: `Error ${res.status}: ${respBody}` }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(await res.json(), null, 2) }] };
+    });
+    server.tool("madeonsol_sniper_watchlist_remove", "Remove a deployer wallet from your sniper watchlist. PRO+/ULTRA only. Added 2026-09-10.", {
+        wallet: z.string().describe("Deployer wallet address (base58) to remove"),
+    }, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, async ({ wallet }) => {
+        if (authMode !== "madeonsol")
+            return { content: [{ type: "text", text: "Sniper watchlist requires MADEONSOL_API_KEY (msk_)." }] };
+        const res = await fetch(`${BASE_URL}/api/v1/sniper/watchlist/${encodeURIComponent(wallet)}`, { method: "DELETE", headers: apiKeyHeaders() });
+        if (!res.ok) {
+            const body = await res.text().catch(() => "");
+            return { content: [{ type: "text", text: `Error ${res.status}: ${body}` }] };
+        }
+        return { content: [{ type: "text", text: JSON.stringify(await res.json(), null, 2) }] };
+    });
     server.tool("madeonsol_discovery", "List all available MadeOnSol API endpoints with prices and parameter docs. Free, no auth required. The keyless x402 catalog now covers 25 endpoints — recent additions: token candles ($0.01), almost-bonded ($0.01), top-traders ($0.02), cap-table ($0.02), sniper recent deploys ($0.01), token flow ($0.01), and deployer trajectory ($0.01).", {}, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }, async () => {
         const res = await fetch(new URL("/api/x402", BASE_URL).toString());
         const data = await res.json();
@@ -413,6 +456,12 @@ function registerTools(server) {
                 wallet_address: z.string().describe("Solana wallet address to remove from watchlist"),
             }, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, async ({ wallet_address }) => ({
                 content: [{ type: "text", text: await walletTrackerRequest("DELETE", `/wallet-tracker/watchlist/${encodeURIComponent(wallet_address)}`) }],
+            }));
+            server.tool("madeonsol_wallet_tracker_relabel", "Rename (or clear) the label on a wallet already in your watchlist. Added 2026-09-10.", {
+                wallet_address: z.string().describe("Solana wallet address (base58) already on your watchlist"),
+                label: z.string().nullable().describe("New label, or null to clear it"),
+            }, { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }, async ({ wallet_address, label }) => ({
+                content: [{ type: "text", text: await walletTrackerRequest("PATCH", `/wallet-tracker/watchlist/${encodeURIComponent(wallet_address)}`, { label }) }],
             }));
             server.tool("madeonsol_wallet_tracker_trades", "Historical swap and transfer events for all your watched wallets. BASIC: truncated wallets, no tx_signature.", {
                 wallet: z.string().optional().describe("Filter to a specific wallet address"),
@@ -570,6 +619,21 @@ function registerTools(server) {
         }, { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }, async ({ id }) => ({
             content: [{ type: "text", text: await restQuery("DELETE", `/webhooks/${id}`) }],
         }));
+        server.tool("madeonsol_update_webhook", "Update a webhook's URL, subscribed events, or active state. Only the fields you pass are changed. Added 2026-09-10.", {
+            id: z.number().describe("Webhook ID to update"),
+            url: z.string().url().optional().describe("New HTTPS webhook URL"),
+            events: z.array(z.enum(["kol:trade", "kol:coordination", "deployer:alert", "deployer:bond"])).optional().describe("Replace the subscribed event types"),
+            is_active: z.boolean().optional().describe("Enable or disable this webhook"),
+        }, webhookAnnotations, async ({ id, url, events, is_active }) => {
+            const body = {};
+            if (url !== undefined)
+                body.url = url;
+            if (events !== undefined)
+                body.events = events;
+            if (is_active !== undefined)
+                body.is_active = is_active;
+            return { content: [{ type: "text", text: await restQuery("PATCH", `/webhooks/${id}`, body) }] };
+        });
         server.tool("madeonsol_test_webhook", "Send a sample event payload to a webhook URL to verify it works. Returns status code and response time.", {
             webhook_id: z.number().describe("ID of the webhook to test"),
         }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }, async ({ webhook_id }) => ({
@@ -847,6 +911,26 @@ function registerTools(server) {
                 qs.set("window", window);
             const query = qs.toString();
             const path = `/tokens/${encodeURIComponent(mint)}/flow${query ? `?${query}` : ""}`;
+            return { content: [{ type: "text", text: await restQuery("GET", path) }] };
+        });
+        server.tool("madeonsol_token_top_traders", "The wallets that made (or lost) the most on a token, ranked by realized PnL or ROI (up to 25 on PRO, 100 on ULTRA). Each trader enriched with KOL identity and alpha-wallet reputation (bot_confidence, historical win rate/PnL) so you can tell smart money from bots. Added 2026-09-10 — this tool was missing despite the endpoint existing on every other surface. PRO/ULTRA only.", {
+            mint: z.string().describe("Token mint address (base58)"),
+            limit: z.number().min(1).max(100).optional().describe("Max traders returned — 1-25 PRO, 1-100 ULTRA (default 10)"),
+            sort: z.enum(["pnl", "roi"]).optional().describe("Rank by realized PnL (default) or ROI"),
+            window_days: z.number().min(1).max(180).optional().describe("Lookback window in days (default 90)"),
+            min_bought_sol: z.number().optional().describe("Exclude traders below this total SOL bought (default 0.1)"),
+        }, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true }, async ({ mint, limit, sort, window_days, min_bought_sol }) => {
+            const qs = new URLSearchParams();
+            if (limit !== undefined)
+                qs.set("limit", String(limit));
+            if (sort !== undefined)
+                qs.set("sort", sort);
+            if (window_days !== undefined)
+                qs.set("window_days", String(window_days));
+            if (min_bought_sol !== undefined)
+                qs.set("min_bought_sol", String(min_bought_sol));
+            const query = qs.toString();
+            const path = `/tokens/${encodeURIComponent(mint)}/top-traders${query ? `?${query}` : ""}`;
             return { content: [{ type: "text", text: await restQuery("GET", path) }] };
         });
         server.tool("madeonsol_token_trades", "Mint-scoped trade tape — cursor-paginated raw trades for one token, newest first (the backfill/history complement to the live DEX firehose stream). Each trade: tx_signature, wallet_address, action (buy|sell), sol_amount, token_amount, price_sol|null, price_usd|null, market_price_sol|null, market_price_usd|null, early_buyer_rank|null, slot|null, block_time (unix sec), traded_at (ISO). TWO PRICES, and picking the wrong one gives wrong answers: price_sol is THIS trade's executed price (sol_amount / token_amount — the trader's all-in rate, including swap fee and any account rent, not the pool mid), while market_price_sol is the canonical pool price sampled near that slot and is SHARED by every trade in the slot. Use price_sol for cost basis, fills and PnL; use market_price_sol for a per-token price series independent of trade size and direction. Filters: action, wallet, since/until (unix seconds — defaults to FULL history, not 90d). Pass next_cursor from the previous response to page older trades; has_more tells you when to stop. Coverage honesty: capture starts 2026-04-12 and is pump.fun-pipeline scoped — the response carries coverage.history_start + coverage.scope so agents can reason about gaps. PRO/ULTRA only.", {
@@ -1260,6 +1344,7 @@ async function main() {
                         { name: "madeonsol_token_buyer_quality", description: "0–100 buyer quality score for a token's first-buyer cohort." },
                         { name: "madeonsol_token_depth", description: "Per-pool price impact / slippage — quotes per SOL buy size + SOL to move price 1%/5%/10%; unsupported pools flagged with a reason. PRO+." },
                         { name: "madeonsol_token_candles", description: "Historical OHLCV price candles (1m–1d). PRO=OHLCV 30d; ULTRA=+net flow, liquidity delta, full history." },
+                        { name: "madeonsol_token_top_traders", description: "The wallets that made or lost the most on a token, ranked by PnL or ROI, enriched with KOL/alpha-wallet identity. PRO/ULTRA." },
                         { name: "madeonsol_token_trades", description: "Mint-scoped trade tape — cursor-paginated raw trades for one token, full history from 2026-04-12. PRO+." },
                         { name: "madeonsol_tokens_batch_buyer_quality", description: "Bulk buyer-quality scoring for up to 50 mints. Shares the LRU cache." },
                         { name: "madeonsol_tokens_batch_risk", description: "Bulk rug-risk/safety scoring for up to 50 mints — same shape as madeonsol_token_risk + as_of; untracked mints don't fail the batch. PRO+." },
